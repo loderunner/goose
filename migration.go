@@ -40,6 +40,7 @@ type Migration struct {
 	Registered bool
 	UpFn       func(QueryExecer) error // Up go migration function
 	DownFn     func(QueryExecer) error // Down go migration function
+	NoTx       bool
 }
 
 func (m *Migration) String() string {
@@ -75,28 +76,45 @@ func (m *Migration) run(db *sql.DB, direction bool) error {
 		if !m.Registered {
 			log.Fatalf("failed to apply Go migration %q: Go functions must be registered and built into a custom binary (see https://github.com/loderunner/goose/tree/master/examples/go-migrations)", m.Source)
 		}
-		tx, err := db.Begin()
-		if err != nil {
-			log.Fatal("db.Begin: ", err)
-		}
 
-		fn := m.UpFn
-		if !direction {
-			fn = m.DownFn
-		}
-		if fn != nil {
-			if err := fn(tx); err != nil {
-				tx.Rollback()
-				log.Fatalf("FAIL %s (%v), quitting migration.", filepath.Base(m.Source), err)
+		if m.NoTx {
+			fn := m.UpFn
+			if !direction {
+				fn = m.DownFn
+			}
+			if fn != nil {
+				if err := fn(db); err != nil {
+					log.Fatalf("FAIL %s (%v), quitting migration.", filepath.Base(m.Source), err)
+					return err
+				}
+			}
+			if _, err := db.Exec(GetDialect().insertVersionSQL(), m.Version, direction); err != nil {
 				return err
 			}
-		}
-		if _, err := tx.Exec(GetDialect().insertVersionSQL(), m.Version, direction); err != nil {
-			tx.Rollback()
-			return err
-		}
+		} else {
+			tx, err := db.Begin()
+			if err != nil {
+				log.Fatal("db.Begin: ", err)
+			}
 
-		return tx.Commit()
+			fn := m.UpFn
+			if !direction {
+				fn = m.DownFn
+			}
+			if fn != nil {
+				if err := fn(tx); err != nil {
+					tx.Rollback()
+					log.Fatalf("FAIL %s (%v), quitting migration.", filepath.Base(m.Source), err)
+					return err
+				}
+			}
+			if _, err := tx.Exec(GetDialect().insertVersionSQL(), m.Version, direction); err != nil {
+				tx.Rollback()
+				return err
+			}
+
+			return tx.Commit()
+		}
 	}
 
 	return nil
