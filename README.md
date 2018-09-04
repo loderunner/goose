@@ -8,6 +8,7 @@ Goose is a database migration tool. Manage your database schema by creating incr
 
 `github.com/loderunner/goose` is a fork of `github.com/pressly/goose` with the following changes:
 
+* Allow Go migrations without transactions
 
 # Install
 
