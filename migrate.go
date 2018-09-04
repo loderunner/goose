@@ -125,7 +125,7 @@ func AddNamedMigrationNoTx(filename string, up func(QueryExecer) error, down fun
 func CollectMigrations(dirpath string, current, target int64) (Migrations, error) {
 	if dirpath != "" {
 		if _, err := os.Stat(dirpath); os.IsNotExist(err) {
-			return nil, fmt.Errorf("%s directory does not exists", dirpath)
+			return nil, fmt.Errorf("%s directory does not exist", dirpath)
 		}
 	}
 
