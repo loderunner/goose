@@ -8,7 +8,7 @@ import (
 	"text/template"
 )
 
-// Create writes a new blank migration file.
+// CreateWithTemplate writes a new blank migration file.
 func CreateWithTemplate(db *sql.DB, dir string, migrationTemplate *template.Template, name, migrationType string) error {
 	migrations, err := CollectMigrations(dir, minVersion, maxVersion)
 	if err != nil {
@@ -78,7 +78,6 @@ var sqlMigrationTemplate = template.Must(template.New("goose.sql-migration").Par
 var goSQLMigrationTemplate = template.Must(template.New("goose.go-migration").Parse(`package migration
 
 import (
-	"database/sql"
 	"github.com/loderunner/goose"
 )
 
@@ -86,12 +85,12 @@ func init() {
 	goose.AddMigration(Up{{.}}, Down{{.}})
 }
 
-func Up{{.}}(tx *sql.Tx) error {
+func Up{{.}}(qe goose.QueryExecer) error {
 	// This code is executed when the migration is applied.
 	return nil
 }
 
-func Down{{.}}(tx *sql.Tx) error {
+func Down{{.}}(qe goose.QueryExecer) error {
 	// This code is executed when the migration is rolled back.
 	return nil
 }

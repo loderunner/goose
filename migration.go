@@ -1,6 +1,7 @@
 package goose
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -17,6 +18,19 @@ type MigrationRecord struct {
 	IsApplied bool // was this a result of up() or down()
 }
 
+// QueryExecer is an umbrella interface that regroups the Query and Exec
+// functions of both sql.DB and sql.Tx
+type QueryExecer interface {
+	Exec(query string, args ...interface{}) (sql.Result, error)
+	ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error)
+	Prepare(query string) (*sql.Stmt, error)
+	PrepareContext(ctx context.Context, query string) (*sql.Stmt, error)
+	Query(query string, args ...interface{}) (*sql.Rows, error)
+	QueryContext(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error)
+	QueryRow(query string, args ...interface{}) *sql.Row
+	QueryRowContext(ctx context.Context, query string, args ...interface{}) *sql.Row
+}
+
 // Migration struct.
 type Migration struct {
 	Version    int64
@@ -24,8 +38,8 @@ type Migration struct {
 	Previous   int64  // previous version, -1 if none
 	Source     string // path to .sql script
 	Registered bool
-	UpFn       func(*sql.Tx) error // Up go migration function
-	DownFn     func(*sql.Tx) error // Down go migration function
+	UpFn       func(QueryExecer) error // Up go migration function
+	DownFn     func(QueryExecer) error // Down go migration function
 }
 
 func (m *Migration) String() string {
