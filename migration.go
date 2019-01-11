@@ -88,8 +88,14 @@ func (m *Migration) run(db *sql.DB, direction bool) error {
 					return err
 				}
 			}
-			if _, err := db.Exec(GetDialect().insertVersionSQL(), m.Version, direction); err != nil {
-				return err
+			if direction {
+				if _, err := db.Exec(GetDialect().insertVersionSQL(), m.Version, direction); err != nil {
+					return err
+				}
+			} else {
+				if _, err := db.Exec(GetDialect().deleteVersionSQL(), m.Version); err != nil {
+					return err
+				}
 			}
 		} else {
 			tx, err := db.Begin()
@@ -108,9 +114,16 @@ func (m *Migration) run(db *sql.DB, direction bool) error {
 					return err
 				}
 			}
-			if _, err := tx.Exec(GetDialect().insertVersionSQL(), m.Version, direction); err != nil {
-				tx.Rollback()
-				return err
+			if direction {
+				if _, err := tx.Exec(GetDialect().insertVersionSQL(), m.Version, direction); err != nil {
+					tx.Rollback()
+					return err
+				}
+			} else {
+				if _, err := tx.Exec(GetDialect().deleteVersionSQL(), m.Version); err != nil {
+					tx.Rollback()
+					return err
+				}
 			}
 
 			return tx.Commit()
