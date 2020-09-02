@@ -2,14 +2,14 @@ package goose
 
 import (
 	"database/sql"
-	"errors"
 	"fmt"
-	"math"
 	"os"
 	"path/filepath"
 	"runtime"
 	"sort"
 	"time"
+
+	"github.com/pkg/errors"
 )
 
 var (
@@ -18,7 +18,7 @@ var (
 	// ErrNoNextVersion when the next migration version is not found.
 	ErrNoNextVersion = errors.New("no next version found")
 	// MaxVersion is the maximum allowed version.
-	MaxVersion int64 = math.MaxInt64 // max(int64)
+	MaxVersion int64 = 9223372036854775807 // max(int64)
 
 	registeredGoMigrations = map[int64]*Migration{}
 )
@@ -31,7 +31,7 @@ func (ms Migrations) Len() int      { return len(ms) }
 func (ms Migrations) Swap(i, j int) { ms[i], ms[j] = ms[j], ms[i] }
 func (ms Migrations) Less(i, j int) bool {
 	if ms[i].Version == ms[j].Version {
-		log.Fatalf("goose: duplicate version %v detected:\n%v\n%v", ms[i].Version, ms[i].Source, ms[j].Source)
+		panic(fmt.Sprintf("goose: duplicate version %v detected:\n%v\n%v", ms[i].Version, ms[i].Source, ms[j].Source))
 	}
 	return ms[i].Version < ms[j].Version
 }
@@ -141,50 +141,28 @@ func AddNamedMigration(filename string, up func(QueryExecer) error, down func(Qu
 	registeredGoMigrations[v] = migration
 }
 
-// AddMigrationNoTx adds a migration. The migration will not use a transaction.
-func AddMigrationNoTx(up func(QueryExecer) error, down func(QueryExecer) error) {
-	_, filename, _, _ := runtime.Caller(1)
-	AddNamedMigrationNoTx(filename, up, down)
-}
-
-// AddNamedMigrationNoTx adds a named migration. The migration will not use a transaction.
-func AddNamedMigrationNoTx(filename string, up func(QueryExecer) error, down func(QueryExecer) error) {
-	v, _ := NumericComponent(filename)
-	migration := &Migration{Version: v, Next: -1, Previous: -1, Registered: true, UpFn: up, DownFn: down, Source: filename, NoTx: true}
-
-	if existing, ok := registeredGoMigrations[v]; ok {
-		panic(fmt.Sprintf("failed to add migration %q: version conflicts with %q", filename, existing.Source))
-	}
-
-	registeredGoMigrations[v] = migration
-}
-
 // CollectMigrations returns all the valid looking migration scripts in the
 // migrations folder and go func registry, and key them by version.
 func CollectMigrations(dirpath string, current, target int64) (Migrations, error) {
-	if dirpath != "" {
-		if _, err := os.Stat(dirpath); os.IsNotExist(err) {
-			return nil, fmt.Errorf("%s directory does not exist", dirpath)
-		}
+	if _, err := os.Stat(dirpath); os.IsNotExist(err) {
+		return nil, fmt.Errorf("%s directory does not exist", dirpath)
 	}
 
 	var migrations Migrations
 
 	// SQL migration files.
-	if dirpath != "" {
-		sqlMigrationFiles, err := filepath.Glob(filepath.Join(dirpath, "**.sql"))
+	sqlMigrationFiles, err := filepath.Glob(dirpath + "/*.sql")
+	if err != nil {
+		return nil, err
+	}
+	for _, file := range sqlMigrationFiles {
+		v, err := NumericComponent(file)
 		if err != nil {
 			return nil, err
 		}
-		for _, file := range sqlMigrationFiles {
-			v, err := NumericComponent(file)
-			if err != nil {
-				return nil, err
-			}
-			if versionFilter(v, current, target) {
-				migration := &Migration{Version: v, Next: -1, Previous: -1, Source: file}
-				migrations = append(migrations, migration)
-			}
+		if versionFilter(v, current, target) {
+			migration := &Migration{Version: v, Next: -1, Previous: -1, Source: file}
+			migrations = append(migrations, migration)
 		}
 	}
 
@@ -200,26 +178,24 @@ func CollectMigrations(dirpath string, current, target int64) (Migrations, error
 	}
 
 	// Go migration files
-	if dirpath != "" {
-		goMigrationFiles, err := filepath.Glob(filepath.Join(dirpath, "**.go"))
+	goMigrationFiles, err := filepath.Glob(dirpath + "/*.go")
+	if err != nil {
+		return nil, err
+	}
+	for _, file := range goMigrationFiles {
+		v, err := NumericComponent(file)
 		if err != nil {
-			return nil, err
+			continue // Skip any files that don't have version prefix.
 		}
-		for _, file := range goMigrationFiles {
-			v, err := NumericComponent(file)
-			if err != nil {
-				continue // Skip any files that don't have version prefix.
-			}
 
-			// Skip migrations already existing migrations registered via goose.AddMigration().
-			if _, ok := registeredGoMigrations[v]; ok {
-				continue
-			}
+		// Skip migrations already existing migrations registered via goose.AddMigration().
+		if _, ok := registeredGoMigrations[v]; ok {
+			continue
+		}
 
-			if versionFilter(v, current, target) {
-				migration := &Migration{Version: v, Next: -1, Previous: -1, Source: file, Registered: false}
-				migrations = append(migrations, migration)
-			}
+		if versionFilter(v, current, target) {
+			migration := &Migration{Version: v, Next: -1, Previous: -1, Source: file, Registered: false}
+			migrations = append(migrations, migration)
 		}
 	}
 
@@ -276,7 +252,7 @@ func EnsureDBVersion(db *sql.DB) (int64, error) {
 	for rows.Next() {
 		var row MigrationRecord
 		if err = rows.Scan(&row.VersionID, &row.IsApplied); err != nil {
-			log.Fatal("error scanning rows:", err)
+			return 0, errors.Wrap(err, "failed to scan row")
 		}
 
 		// have we already marked this version to be skipped?
@@ -299,6 +275,9 @@ func EnsureDBVersion(db *sql.DB) (int64, error) {
 
 		// latest version of migration has not been applied.
 		toSkip = append(toSkip, row.VersionID)
+	}
+	if err := rows.Err(); err != nil {
+		return 0, errors.Wrap(err, "failed to get next row")
 	}
 
 	return 0, ErrNoNextVersion
