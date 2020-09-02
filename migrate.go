@@ -141,6 +141,24 @@ func AddNamedMigration(filename string, up func(QueryExecer) error, down func(Qu
 	registeredGoMigrations[v] = migration
 }
 
+// AddMigrationNoTx adds a migration. The migration will not use a transaction.
+func AddMigrationNoTx(up func(QueryExecer) error, down func(QueryExecer) error) {
+	_, filename, _, _ := runtime.Caller(1)
+	AddNamedMigrationNoTx(filename, up, down)
+}
+
+// AddNamedMigrationNoTx adds a named migration. The migration will not use a transaction.
+func AddNamedMigrationNoTx(filename string, up func(QueryExecer) error, down func(QueryExecer) error) {
+	v, _ := NumericComponent(filename)
+	migration := &Migration{Version: v, Next: -1, Previous: -1, Registered: true, UpFn: up, DownFn: down, Source: filename, NoTx: true}
+
+	if existing, ok := registeredGoMigrations[v]; ok {
+		panic(fmt.Sprintf("failed to add migration %q: version conflicts with %q", filename, existing.Source))
+	}
+
+	registeredGoMigrations[v] = migration
+}
+
 // CollectMigrations returns all the valid looking migration scripts in the
 // migrations folder and go func registry, and key them by version.
 func CollectMigrations(dirpath string, current, target int64) (Migrations, error) {
